@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Slideshow</title>
+    <style>
+        * {
+            box-sizing: border-box
+        }
+
+        :root {
+            --ui-bg: rgba(0, 0, 0, .6);
+            --ui-pad: .5rem;
+            --ui-radius: .5rem
+        }
+
+        html,
+        body {
+            height: 100%
+        }
+
+        body {
+            margin: 0;
+            background: #000;
+            color: #fff;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif
+        }
+
+        .viewer {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center
+        }
+
+        .viewer img {
+            max-width: 100vw;
+            max-height: 100vh;
+            display: block
+        }
+
+        .overlay {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 5.5rem;
+            display: flex;
+            gap: .5rem;
+            align-items: center;
+            background: var(--ui-bg);
+            padding: var(--ui-pad) .75rem;
+            border-radius: var(--ui-radius);
+            backdrop-filter: saturate(140%) blur(4px)
+        }
+
+        #counter {
+            opacity: .9
+        }
+
+        #caption {
+            max-width: min(80vw, 960px);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis
+        }
+
+        .controls {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 1rem;
+            display: flex;
+            gap: .5rem;
+            align-items: center;
+            background: var(--ui-bg);
+            padding: .5rem;
+            border-radius: var(--ui-radius);
+            backdrop-filter: saturate(140%) blur(4px)
+        }
+
+        .controls button {
+            appearance: none;
+            border: 0;
+            background: #fff;
+            color: #000;
+            border-radius: .35rem;
+            padding: .5rem .75rem;
+            font-weight: 600;
+            cursor: pointer
+        }
+
+        .controls button[aria-pressed="true"] {
+            outline: 2px solid #fff;
+            background: #000;
+            color: #fff
+        }
+
+        .controls input[type="number"] {
+            width: 6rem;
+            padding: .45rem .5rem;
+            border-radius: .35rem;
+            border: 0
+        }
+
+        #thumbs {
+            position: fixed;
+            left: 0;
+            right: 0;
+            top: .75rem;
+            display: flex;
+            gap: .5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            padding: 0 .75rem
+        }
+
+        #thumbs .thumb {
+            border: 0;
+            background: transparent;
+            padding: 0;
+            cursor: pointer;
+            outline-offset: 2px
+        }
+
+        #thumbs .thumb img {
+            height: 56px;
+            max-width: 100px;
+            object-fit: contain;
+            background: #111;
+            border: 1px solid #222;
+            border-radius: .35rem;
+            padding: .25rem
+        }
+
+        .message {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
+            text-align: center
+        }
+
+        .hidden {
+            display: none
+        }
+
+        @media (max-width:640px) {
+            .overlay {
+                bottom: 6.5rem
+            }
+
+            #thumbs .thumb img {
+                height: 44px;
+                max-width: 80px
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="thumbs"></div>
+    <div class="viewer">
+        <img id="slide" alt="">
+    </div>
+    <div class="overlay">
+        <span id="counter"></span>
+        <span aria-hidden="true">•</span>
+        <span id="caption"></span>
+    </div>
+    <div class="controls">
+        <button id="prev" type="button">Prev</button>
+        <button id="play" type="button" aria-pressed="false">Play</button>
+        <button id="next" type="button">Next</button>
+        <label for="speed">ms</label>
+        <input id="speed" type="number" min="500" step="100" value="3000" inputmode="numeric">
+    </div>
+    <div id="msg" class="message hidden"></div>
+    <script>
+        (() => {
+            "use strict";
+            const slide = document.getElementById("slide");
+            const caption = document.getElementById("caption");
+            const counter = document.getElementById("counter");
+            const prev = document.getElementById("prev");
+            const next = document.getElementById("next");
+            const play = document.getElementById("play");
+            const speed = document.getElementById("speed");
+            const thumbs = document.getElementById("thumbs");
+            const msg = document.getElementById("msg");
+            const params = new URLSearchParams(location.search);
+            let owner = params.get("owner") || "";
+            let repo = params.get("repo") || "";
+            let branch = params.get("branch") || "main";
+            if (!owner || !repo) {
+                const m = location.hostname.match(/^([^\.]+)\.github\.io$/);
+                if (m) {
+                    owner = owner || m[1];
+                    const parts = location.pathname.split("/").filter(Boolean);
+                    repo = repo || (parts[0] || "");
+                }
+            }
+            let urls = [];
+            let names = [];
+            let idx = 0;
+            let timer = null;
+            const failed = new Set();
+            function setHash() {
+                history.replaceState(null, "", `?i=${idx}&name=${encodeURIComponent(names[idx])}${owner ? `&owner=${encodeURIComponent(owner)}` : ""}${repo ? `&repo=${encodeURIComponent(repo)}` : ""}${branch ? `&branch=${encodeURIComponent(branch)}` : ""}`);
+            }
+            function preload(k) {
+                const a = [(k + 1) % urls.length, (k - 1 + urls.length) % urls.length];
+                for (const x of a) { const im = new Image(); im.src = urls[x]; }
+            }
+            function render() {
+                slide.src = urls[idx];
+                slide.alt = names[idx];
+                caption.textContent = names[idx];
+                counter.textContent = `${idx + 1}/${urls.length}`;
+                setHash();
+                preload(idx);
+                Array.from(thumbs.children).forEach((b, i) => b.style.outline = i === idx ? "2px solid #fff" : "none");
+            }
+            function nextImg() { idx = (idx + 1) % urls.length; render(); }
+            function prevImg() { idx = (idx - 1 + urls.length) % urls.length; render(); }
+            function playStart() {
+                if (timer) return;
+                play.setAttribute("aria-pressed", "true");
+                timer = setInterval(nextImg, Math.max(500, parseInt(speed.value, 10) || 3000));
+            }
+            function playStop() {
+                if (!timer) return;
+                play.setAttribute("aria-pressed", "false");
+                clearInterval(timer);
+                timer = null;
+            }
+            function playToggle() { if (timer) playStop(); else playStart(); }
+            slide.addEventListener("click", nextImg);
+            prev.addEventListener("click", prevImg);
+            next.addEventListener("click", nextImg);
+            play.addEventListener("click", playToggle);
+            speed.addEventListener("change", () => { if (timer) { playStop(); playStart(); } });
+            window.addEventListener("keydown", e => {
+                if (e.target instanceof HTMLInputElement) return;
+                if (e.key === "ArrowRight") nextImg();
+                else if (e.key === "ArrowLeft") prevImg();
+                else if (e.key === " ") { e.preventDefault(); playToggle(); }
+                else if (e.key.toLowerCase() === "f") { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => { }); }
+            });
+            slide.addEventListener("error", () => {
+                failed.add(names[idx]);
+                const removeAt = idx;
+                urls.splice(removeAt, 1);
+                names.splice(removeAt, 1);
+                if (urls.length === 0) {
+                    msg.textContent = "All images failed to load.";
+                    msg.classList.remove("hidden");
+                    document.querySelector(".overlay").classList.add("hidden");
+                    document.querySelector(".controls").classList.add("hidden");
+                    slide.classList.add("hidden");
+                    return;
+                }
+                idx = removeAt % urls.length;
+                render();
+            });
+            function buildThumbs() {
+                thumbs.innerHTML = "";
+                for (let x = 0; x < urls.length; x++) {
+                    const b = document.createElement("button");
+                    b.type = "button";
+                    b.className = "thumb";
+                    const t = document.createElement("img");
+                    t.src = urls[x];
+                    t.alt = names[x];
+                    b.title = names[x];
+                    b.addEventListener("click", () => { idx = x; render(); });
+                    b.appendChild(t);
+                    thumbs.appendChild(b);
+                }
+            }
+            function startAtFromQuery() {
+                const qi = params.get("i");
+                if (qi !== null) {
+                    const t = parseInt(qi, 10);
+                    if (!Number.isNaN(t) && t >= 0 && t < urls.length) idx = t;
+                }
+                const qn = params.get("name");
+                if (qn) {
+                    const j = names.indexOf(qn);
+                    if (j !== -1) idx = j;
+                }
+            }
+            async function fetchRepoImages() {
+                if (!owner || !repo) {
+                    msg.textContent = "Set ?owner=ORG&repo=REPO[&branch=main] in the URL or host on GitHub Pages.";
+                    msg.classList.remove("hidden");
+                    document.querySelector(".overlay").classList.add("hidden");
+                    document.querySelector(".controls").classList.add("hidden");
+                    return;
+                }
+                const api = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+                const r = await fetch(api, { headers: { Accept: "application/vnd.github+json" } });
+                if (!r.ok) {
+                    msg.textContent = r.status === 404 ? "Repository or branch not found." : r.status === 403 ? "GitHub API rate limit reached. Try again later." : "Failed to load repository file list.";
+                    msg.classList.remove("hidden");
+                    document.querySelector(".overlay").classList.add("hidden");
+                    document.querySelector(".controls").classList.add("hidden");
+                    return;
+                }
+                const data = await r.json();
+                const tree = Array.isArray(data.tree) ? data.tree : [];
+                const list = tree.filter(e => e && e.type === "blob" && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(e.path)).map(e => e.path).sort((a, b) => a.localeCompare(b));
+                if (list.length === 0) {
+                    msg.textContent = "No images found in this repository.";
+                    msg.classList.remove("hidden");
+                    document.querySelector(".overlay").classList.add("hidden");
+                    document.querySelector(".controls").classList.add("hidden");
+                    return;
+                }
+                const base = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/`;
+                urls = list.map(p => base + p);
+                names = list.slice();
+                buildThumbs();
+                startAtFromQuery();
+                render();
+            }
+            fetchRepoImages().catch(() => {
+                msg.textContent = "Unexpected error.";
+                msg.classList.remove("hidden");
+                document.querySelector(".overlay").classList.add("hidden");
+                document.querySelector(".controls").classList.add("hidden");
+            });
+        })();
+    </script>
+</body>
+
+</html>
