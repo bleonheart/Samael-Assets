@@ -104,6 +104,13 @@
             border: 0
         }
 
+        #folders {
+            padding: .45rem .5rem;
+            border-radius: .35rem;
+            border: 0;
+            max-width: 40vw
+        }
+
         #thumbs {
             position: fixed;
             left: 0;
@@ -171,6 +178,7 @@
         <span id="caption"></span>
     </div>
     <div class="controls">
+        <select id="folders"></select>
         <button id="prev" type="button">Prev</button>
         <button id="play" type="button" aria-pressed="false">Play</button>
         <button id="next" type="button">Next</button>
@@ -179,161 +187,4 @@
     </div>
     <div id="msg" class="message hidden"></div>
     <script>
-        (() => {
-            "use strict";
-            const slide = document.getElementById("slide");
-            const caption = document.getElementById("caption");
-            const counter = document.getElementById("counter");
-            const prev = document.getElementById("prev");
-            const next = document.getElementById("next");
-            const play = document.getElementById("play");
-            const speed = document.getElementById("speed");
-            const thumbs = document.getElementById("thumbs");
-            const msg = document.getElementById("msg");
-            const params = new URLSearchParams(location.search);
-            let owner = params.get("owner") || "";
-            let repo = params.get("repo") || "";
-            let branch = params.get("branch") || "main";
-            if (!owner || !repo) {
-                const m = location.hostname.match(/^([^\.]+)\.github\.io$/);
-                if (m) {
-                    owner = owner || m[1];
-                    const parts = location.pathname.split("/").filter(Boolean);
-                    repo = repo || (parts[0] || "");
-                }
-            }
-            let urls = [];
-            let names = [];
-            let idx = 0;
-            let timer = null;
-            const failed = new Set();
-            function setHash() {
-                history.replaceState(null, "", `?i=${idx}&name=${encodeURIComponent(names[idx])}${owner ? `&owner=${encodeURIComponent(owner)}` : ""}${repo ? `&repo=${encodeURIComponent(repo)}` : ""}${branch ? `&branch=${encodeURIComponent(branch)}` : ""}`);
-            }
-            function preload(k) {
-                const a = [(k + 1) % urls.length, (k - 1 + urls.length) % urls.length];
-                for (const x of a) { const im = new Image(); im.src = urls[x]; }
-            }
-            function render() {
-                slide.src = urls[idx];
-                slide.alt = names[idx];
-                caption.textContent = names[idx];
-                counter.textContent = `${idx + 1}/${urls.length}`;
-                setHash();
-                preload(idx);
-                Array.from(thumbs.children).forEach((b, i) => b.style.outline = i === idx ? "2px solid #fff" : "none");
-            }
-            function nextImg() { idx = (idx + 1) % urls.length; render(); }
-            function prevImg() { idx = (idx - 1 + urls.length) % urls.length; render(); }
-            function playStart() {
-                if (timer) return;
-                play.setAttribute("aria-pressed", "true");
-                timer = setInterval(nextImg, Math.max(500, parseInt(speed.value, 10) || 3000));
-            }
-            function playStop() {
-                if (!timer) return;
-                play.setAttribute("aria-pressed", "false");
-                clearInterval(timer);
-                timer = null;
-            }
-            function playToggle() { if (timer) playStop(); else playStart(); }
-            slide.addEventListener("click", nextImg);
-            prev.addEventListener("click", prevImg);
-            next.addEventListener("click", nextImg);
-            play.addEventListener("click", playToggle);
-            speed.addEventListener("change", () => { if (timer) { playStop(); playStart(); } });
-            window.addEventListener("keydown", e => {
-                if (e.target instanceof HTMLInputElement) return;
-                if (e.key === "ArrowRight") nextImg();
-                else if (e.key === "ArrowLeft") prevImg();
-                else if (e.key === " ") { e.preventDefault(); playToggle(); }
-                else if (e.key.toLowerCase() === "f") { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => { }); }
-            });
-            slide.addEventListener("error", () => {
-                failed.add(names[idx]);
-                const removeAt = idx;
-                urls.splice(removeAt, 1);
-                names.splice(removeAt, 1);
-                if (urls.length === 0) {
-                    msg.textContent = "All images failed to load.";
-                    msg.classList.remove("hidden");
-                    document.querySelector(".overlay").classList.add("hidden");
-                    document.querySelector(".controls").classList.add("hidden");
-                    slide.classList.add("hidden");
-                    return;
-                }
-                idx = removeAt % urls.length;
-                render();
-            });
-            function buildThumbs() {
-                thumbs.innerHTML = "";
-                for (let x = 0; x < urls.length; x++) {
-                    const b = document.createElement("button");
-                    b.type = "button";
-                    b.className = "thumb";
-                    const t = document.createElement("img");
-                    t.src = urls[x];
-                    t.alt = names[x];
-                    b.title = names[x];
-                    b.addEventListener("click", () => { idx = x; render(); });
-                    b.appendChild(t);
-                    thumbs.appendChild(b);
-                }
-            }
-            function startAtFromQuery() {
-                const qi = params.get("i");
-                if (qi !== null) {
-                    const t = parseInt(qi, 10);
-                    if (!Number.isNaN(t) && t >= 0 && t < urls.length) idx = t;
-                }
-                const qn = params.get("name");
-                if (qn) {
-                    const j = names.indexOf(qn);
-                    if (j !== -1) idx = j;
-                }
-            }
-            async function fetchRepoImages() {
-                if (!owner || !repo) {
-                    msg.textContent = "Set ?owner=ORG&repo=REPO[&branch=main] in the URL or host on GitHub Pages.";
-                    msg.classList.remove("hidden");
-                    document.querySelector(".overlay").classList.add("hidden");
-                    document.querySelector(".controls").classList.add("hidden");
-                    return;
-                }
-                const api = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
-                const r = await fetch(api, { headers: { Accept: "application/vnd.github+json" } });
-                if (!r.ok) {
-                    msg.textContent = r.status === 404 ? "Repository or branch not found." : r.status === 403 ? "GitHub API rate limit reached. Try again later." : "Failed to load repository file list.";
-                    msg.classList.remove("hidden");
-                    document.querySelector(".overlay").classList.add("hidden");
-                    document.querySelector(".controls").classList.add("hidden");
-                    return;
-                }
-                const data = await r.json();
-                const tree = Array.isArray(data.tree) ? data.tree : [];
-                const list = tree.filter(e => e && e.type === "blob" && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(e.path)).map(e => e.path).sort((a, b) => a.localeCompare(b));
-                if (list.length === 0) {
-                    msg.textContent = "No images found in this repository.";
-                    msg.classList.remove("hidden");
-                    document.querySelector(".overlay").classList.add("hidden");
-                    document.querySelector(".controls").classList.add("hidden");
-                    return;
-                }
-                const base = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/`;
-                urls = list.map(p => base + p);
-                names = list.slice();
-                buildThumbs();
-                startAtFromQuery();
-                render();
-            }
-            fetchRepoImages().catch(() => {
-                msg.textContent = "Unexpected error.";
-                msg.classList.remove("hidden");
-                document.querySelector(".overlay").classList.add("hidden");
-                document.querySelector(".controls").classList.add("hidden");
-            });
-        })();
-    </script>
-</body>
-
-</html>
+        (() => { "use strict"; const slide = document.getElementById("slide"); const caption = document.getElementById("caption"); const counter = document.getElementById("counter"); const prev = document.getElementById("prev"); const next = document.getElementById("next"); const play = document.getElementById("play"); const speed = document.getElementById("speed"); const thumbs = document.getElementById("thumbs"); const msg = document.getElementById("msg"); const folderSel = document.getElementById("folders"); const params = new URLSearchParams(location.search); let owner = params.get("owner") || ""; let repo = params.get("repo") || ""; let branch = params.get("branch") || "main"; let startDir = params.get("dir") || ""; if (!owner || !repo) { const m = location.hostname.match(/^([^\.]+)\.github\.io$/); if (m) { owner = owner || m[1]; const parts = location.pathname.split("/").filter(Boolean); repo = repo || (parts[0] || "") } } let folders = {}; let folderNames = []; let currentFolder = ""; let urls = []; let names = []; let idx = 0; let timer = null; const failed = new Set(); function setHash() { history.replaceState(null, "", `?i=${idx}&name=${encodeURIComponent(names[idx] || "")}${owner ? `&owner=${encodeURIComponent(owner)}` : ""}${repo ? `&repo=${encodeURIComponent(repo)}` : ""}${branch ? `&branch=${encodeURIComponent(branch)}` : ""}${currentFolder ? `&dir=${encodeURIComponent(currentFolder)}` : ""}`) } function preload(k) { if (!urls.length) return; const a = [(k + 1) % urls.length, (k - 1 + urls.length) % urls.length]; for (const x of a) { const im = new Image(); im.src = urls[x] } } function render() { if (!urls.length) { msg.textContent = "No images in this folder."; msg.classList.remove("hidden"); document.querySelector(".overlay").classList.add("hidden"); slide.classList.add("hidden"); return } msg.classList.add("hidden"); document.querySelector(".overlay").classList.remove("hidden"); slide.classList.remove("hidden"); slide.src = urls[idx]; slide.alt = names[idx]; caption.textContent = names[idx]; counter.textContent = `${idx + 1}/${urls.length}`; setHash(); preload(idx); Array.from(thumbs.children).forEach((b, i) => b.style.outline = i === idx ? "2px solid #fff" : "none") } function nextImg() { if (!urls.length) return; idx = (idx + 1) % urls.length; render() } function prevImg() { if (!urls.length) return; idx = (idx - 1 + urls.length) % urls.length; render() } function playStart() { if (timer || !urls.length) return; play.setAttribute("aria-pressed", "true"); timer = setInterval(nextImg, Math.max(500, parseInt(speed.value, 10) || 3000)) } function playStop() { if (!timer) return; play.setAttribute("aria-pressed", "false"); clearInterval(timer); timer = null } function playToggle() { if (timer) playStop(); else playStart() } slide.addEventListener("click", nextImg); prev.addEventListener("click", prevImg); next.addEventListener("click", nextImg); play.addEventListener("click", playToggle); speed.addEventListener("change", () => { if (timer) { playStop(); playStart() } }); window.addEventListener("keydown", e => { if (e.target instanceof HTMLInputElement || e.target === folderSel) return; if (e.key === "ArrowRight") nextImg(); else if (e.key === "ArrowLeft") prevImg(); else if (e.key === " ") { e.preventDefault(); playToggle() } else if (e.key.toLowerCase() === "f") { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => { }) } }); slide.addEventListener("error", () => { failed.add(names[idx]); const removeAt = idx; urls.splice(removeAt, 1); names.splice(removeAt, 1); if (urls.length === 0) { render(); return } idx = removeAt % urls.length; render() }); function buildThumbs() { thumbs.innerHTML = ""; for (let x = 0; x < urls.length; x++) { const b = document.createElement("button"); b.type = "button"; b.className = "thumb"; const t = document.createElement("img"); t.loading = "lazy"; t.src = urls[x]; t.alt = names[x]; b.title = names[x]; b.addEventListener("click", () => { idx = x; render() }); b.appendChild(t); thumbs.appendChild(b) } } function setFolderSelector() { folderSel.innerHTML = ""; for (const f of folderNames) { const opt = document.createElement("option"); opt.value = f; opt.textContent = f; folderSel.appendChild(opt) } folderSel.value = currentFolder; folderSel.addEventListener("change", () => { loadFolder(folderSel.value) }) } function startAtFromQuery() { const qi = params.get("i"); if (qi !== null) { const t = parseInt(qi, 10); if (!Number.isNaN(t) && t >= 0 && t < urls.length) idx = t } const qn = params.get("name"); if (qn) { const j = names.indexOf(qn); if (j !== -1) idx = j } } function loadFolder(folder) { currentFolder = folder; const base = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/`; const list = (folders[folder] || []).slice().sort((a, b) => a.localeCompare(b)); urls = list.map(p => base + p); names = list.slice(); idx = 0; buildThumbs(); startAtFromQuery(); render() } function groupByFolder(list) { folders = {}; for (const p of list) { const parts = p.split("/"); const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "root"; if (!folders[dir]) folders[dir] = []; folders[dir].push(p) } folderNames = Object.keys(folders).sort(); currentFolder = startDir && folders[startDir] ? startDir : folderNames[0] || "" } async function fetchRepoImages() { if (!owner || !repo) { msg.textContent = "Set ?owner=ORG&repo=REPO[&branch=main] in the URL or host on GitHub Pages."; msg.class
