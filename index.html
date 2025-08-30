@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Slideshow</title>
+    <title>Asset Browser</title>
     <style>
         * {
             box-sizing: border-box
@@ -26,6 +26,36 @@
             background: #000;
             color: #fff;
             font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif
+        }
+
+        .tabbar {
+            position: sticky;
+            top: 0;
+            display: flex;
+            gap: .5rem;
+            justify-content: center;
+            padding: .75rem;
+            background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.4));
+            backdrop-filter: saturate(140%) blur(6px)
+        }
+
+        .tabbar button {
+            appearance: none;
+            border: 0;
+            background: #111;
+            color: #fff;
+            border-radius: .5rem;
+            padding: .6rem .9rem;
+            font-weight: 700;
+            letter-spacing: .02em;
+            cursor: pointer;
+            border: 1px solid #222
+        }
+
+        .tabbar button[aria-selected="true"] {
+            background: #fff;
+            color: #000;
+            box-shadow: 0 0 0 2px #fff inset
         }
 
         .viewer {
@@ -115,7 +145,7 @@
             position: fixed;
             left: 0;
             right: 0;
-            top: .75rem;
+            top: 3.25rem;
             display: flex;
             gap: .5rem;
             justify-content: center;
@@ -168,26 +198,79 @@
 </head>
 
 <body>
-    <div id="thumbs"></div>
-    <div class="viewer">
-        <img id="slide" alt="">
+    <div class="tabbar" role="tablist" aria-label="Asset sections">
+        <button id="tab-images" role="tab" aria-selected="true" aria-controls="images-tab">Images</button>
+        <button id="tab-sounds" role="tab" aria-selected="false" aria-controls="sounds-tab">Sounds</button>
     </div>
-    <div class="overlay">
-        <span id="counter"></span>
-        <span aria-hidden="true">•</span>
-        <span id="caption"></span>
-    </div>
-    <div class="controls">
-        <select id="folders"></select>
-        <button id="prev" type="button">Prev</button>
-        <button id="play" type="button" aria-pressed="false">Play</button>
-        <button id="next" type="button">Next</button>
-        <label for="speed">ms</label>
-        <input id="speed" type="number" min="500" step="100" value="3000" inputmode="numeric">
-    </div>
-    <div id="msg" class="message hidden"></div>
+
+    <section id="images-tab" role="tabpanel" aria-labelledby="tab-images">
+        <div id="thumbs"></div>
+        <div class="viewer">
+            <img id="slide" alt="">
+        </div>
+        <div class="overlay">
+            <span id="counter"></span>
+            <span aria-hidden="true">•</span>
+            <span id="caption"></span>
+        </div>
+        <div class="controls">
+            <select id="folders"></select>
+            <button id="prev" type="button">Prev</button>
+            <button id="play" type="button" aria-pressed="false">Play</button>
+            <button id="next" type="button">Next</button>
+            <label for="speed">ms</label>
+            <input id="speed" type="number" min="500" step="100" value="3000" inputmode="numeric">
+        </div>
+        <div id="msg" class="message hidden"></div>
+    </section>
+
+    <section id="sounds-tab" class="hidden" role="tabpanel" aria-labelledby="tab-sounds">
+        <div id="audio-msg" class="message hidden"></div>
+        <div class="controls" id="audio-controls">
+            <select id="audio-folders"></select>
+            <button id="audio-prev" type="button">Prev</button>
+            <button id="audio-play" type="button" aria-pressed="false">Play</button>
+            <button id="audio-next" type="button">Next</button>
+        </div>
+        <div class="overlay" id="audio-overlay">
+            <span id="audio-counter"></span>
+            <span aria-hidden="true">•</span>
+            <span id="audio-caption"></span>
+        </div>
+        <div id="audio-list" style="position: fixed; left: 0; right: 0; top: 3.25rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .5rem; padding: 0 .75rem;"></div>
+        <audio id="audio" class="hidden"></audio>
+    </section>
+
     <script>
-        (() => { "use strict"; const slide = document.getElementById("slide"); const caption = document.getElementById("caption"); const counter = document.getElementById("counter"); const prev = document.getElementById("prev"); const next = document.getElementById("next"); const play = document.getElementById("play"); const speed = document.getElementById("speed"); const thumbs = document.getElementById("thumbs"); const msg = document.getElementById("msg"); const folderSel = document.getElementById("folders"); const params = new URLSearchParams(location.search); let owner = params.get("owner") || ""; let repo = params.get("repo") || ""; let branch = params.get("branch") || "main"; let startDir = params.get("dir") || ""; if (!owner || !repo) { const m = location.hostname.match(/^([^\.]+)\.github\.io$/); if (m) { owner = owner || m[1]; const parts = location.pathname.split("/").filter(Boolean); repo = repo || (parts[0] || "") } } let folders = {}; let folderNames = []; let currentFolder = ""; let urls = []; let names = []; let idx = 0; let timer = null; const failed = new Set(); function setHash() { history.replaceState(null, "", `?i=${idx}&name=${encodeURIComponent(names[idx] || "")}${owner ? `&owner=${encodeURIComponent(owner)}` : ""}${repo ? `&repo=${encodeURIComponent(repo)}` : ""}${branch ? `&branch=${encodeURIComponent(branch)}` : ""}${currentFolder ? `&dir=${encodeURIComponent(currentFolder)}` : ""}`) } function preload(k) { if (!urls.length) return; const a = [(k + 1) % urls.length, (k - 1 + urls.length) % urls.length]; for (const x of a) { const im = new Image(); im.src = urls[x] } } function render() { if (!urls.length) { msg.textContent = "No images in this folder."; msg.classList.remove("hidden"); document.querySelector(".overlay").classList.add("hidden"); slide.classList.add("hidden"); return } msg.classList.add("hidden"); document.querySelector(".overlay").classList.remove("hidden"); slide.classList.remove("hidden"); slide.src = urls[idx]; slide.alt = names[idx]; caption.textContent = names[idx]; counter.textContent = `${idx + 1}/${urls.length}`; setHash(); preload(idx); Array.from(thumbs.children).forEach((b, i) => b.style.outline = i === idx ? "2px solid #fff" : "none") } function nextImg() { if (!urls.length) return; idx = (idx + 1) % urls.length; render() } function prevImg() { if (!urls.length) return; idx = (idx - 1 + urls.length) % urls.length; render() } function playStart() { if (timer || !urls.length) return; play.setAttribute("aria-pressed", "true"); timer = setInterval(nextImg, Math.max(500, parseInt(speed.value, 10) || 3000)) } function playStop() { if (!timer) return; play.setAttribute("aria-pressed", "false"); clearInterval(timer); timer = null } function playToggle() { if (timer) playStop(); else playStart() } slide.addEventListener("click", nextImg); prev.addEventListener("click", prevImg); next.addEventListener("click", nextImg); play.addEventListener("click", playToggle); speed.addEventListener("change", () => { if (timer) { playStop(); playStart() } }); window.addEventListener("keydown", e => { if (e.target instanceof HTMLInputElement || e.target === folderSel) return; if (e.key === "ArrowRight") nextImg(); else if (e.key === "ArrowLeft") prevImg(); else if (e.key === " ") { e.preventDefault(); playToggle() } else if (e.key.toLowerCase() === "f") { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => { }) } }); slide.addEventListener("error", () => { failed.add(names[idx]); const removeAt = idx; urls.splice(removeAt, 1); names.splice(removeAt, 1); if (urls.length === 0) { render(); return } idx = removeAt % urls.length; render() }); function buildThumbs() { thumbs.innerHTML = ""; for (let x = 0; x < urls.length; x++) { const b = document.createElement("button"); b.type = "button"; b.className = "thumb"; const t = document.createElement("img"); t.loading = "lazy"; t.src = urls[x]; t.alt = names[x]; b.title = names[x]; b.addEventListener("click", () => { idx = x; render() }); b.appendChild(t); thumbs.appendChild(b) } } function setFolderSelector() { folderSel.innerHTML = ""; for (const f of folderNames) { const opt = document.createElement("option"); opt.value = f; opt.textContent = f; folderSel.appendChild(opt) } folderSel.value = currentFolder; folderSel.addEventListener("change", () => { loadFolder(folderSel.value) }) } function startAtFromQuery() { const qi = params.get("i"); if (qi !== null) { const t = parseInt(qi, 10); if (!Number.isNaN(t) && t >= 0 && t < urls.length) idx = t } const qn = params.get("name"); if (qn) { const j = names.indexOf(qn); if (j !== -1) idx = j } } function loadFolder(folder) { currentFolder = folder; const base = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/`; const list = (folders[folder] || []).slice().sort((a, b) => a.localeCompare(b)); urls = list.map(p => base + p); names = list.slice(); idx = 0; buildThumbs(); startAtFromQuery(); render() } function groupByFolder(list) { folders = {}; for (const p of list) { const parts = p.split("/"); const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "root"; if (!folders[dir]) folders[dir] = []; folders[dir].push(p) } folderNames = Object.keys(folders).sort(); currentFolder = startDir && folders[startDir] ? startDir : folderNames[0] || "" } async function fetchRepoImages() { if (!owner || !repo) { msg.textContent = "Set ?owner=ORG&repo=REPO[&branch=main] in the URL or host on GitHub Pages."; msg.classList.remove("hidden"); document.querySelector(".overlay").classList.add("hidden"); document.querySelector(".controls").classList.add("hidden"); return } const api = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`; const r = await fetch(api, { headers: { Accept: "application/vnd.github+json" } }); if (!r.ok) { msg.textContent = r.status === 404 ? "Repository or branch not found." : r.status === 403 ? "GitHub API rate limit reached. Try again later." : "Failed to load repository file list."; msg.classList.remove("hidden"); document.querySelector(".overlay").classList.add("hidden"); document.querySelector(".controls").classList.add("hidden"); return } const data = await r.json(); const tree = Array.isArray(data.tree) ? data.tree : []; const list = tree.filter(e => e && e.type === "blob" && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(e.path)).map(e => e.path); if (list.length === 0) { msg.textContent = "No images found in this repository."; msg.classList.remove("hidden"); document.querySelector(".overlay").classList.add("hidden"); document.querySelector(".controls").classList.add("hidden"); return } groupByFolder(list); setFolderSelector(); loadFolder(currentFolder) } fetchRepoImages().catch(() => { msg.textContent = "Unexpected error."; msg.classList.remove("hidden"); document.querySelector(".overlay").classList.add("hidden"); document.querySelector(".controls").classList.add("hidden") }) })();
+        // Tabs
+        (function () {
+            "use strict";
+            const tabImages = document.getElementById("tab-images");
+            const tabSounds = document.getElementById("tab-sounds");
+            const panelImages = document.getElementById("images-tab");
+            const panelSounds = document.getElementById("sounds-tab");
+            function activate(which) {
+                if (which === "images") {
+                    tabImages.setAttribute("aria-selected", "true");
+                    tabSounds.setAttribute("aria-selected", "false");
+                    panelImages.classList.remove("hidden");
+                    panelSounds.classList.add("hidden");
+                } else {
+                    tabImages.setAttribute("aria-selected", "false");
+                    tabSounds.setAttribute("aria-selected", "true");
+                    panelImages.classList.add("hidden");
+                    panelSounds.classList.remove("hidden");
+                }
+            }
+            tabImages.addEventListener("click", () => activate("images"));
+            tabSounds.addEventListener("click", () => activate("sounds"));
+        })();
+
+        // Images
+        (() => { "use strict"; const slide = document.getElementById("slide"); const caption = document.getElementById("caption"); const counter = document.getElementById("counter"); const prev = document.getElementById("prev"); const next = document.getElementById("next"); const play = document.getElementById("play"); const speed = document.getElementById("speed"); const thumbs = document.getElementById("thumbs"); const msg = document.getElementById("msg"); const folderSel = document.getElementById("folders"); const params = new URLSearchParams(location.search); const imagesPanel = document.getElementById("images-tab"); let owner = params.get("owner") || ""; let repo = params.get("repo") || ""; let branch = params.get("branch") || "main"; let startDir = params.get("dir") || ""; if (!owner || !repo) { const m = location.hostname.match(/^([^\.]+)\.github\.io$/); if (m) { owner = owner || m[1]; const parts = location.pathname.split("/").filter(Boolean); repo = repo || (parts[0] || "") } } let folders = {}; let folderNames = []; let currentFolder = ""; let urls = []; let names = []; let idx = 0; let timer = null; const failed = new Set(); function setHash() { history.replaceState(null, "", `?i=${idx}&name=${encodeURIComponent(names[idx] || "")}${owner ? `&owner=${encodeURIComponent(owner)}` : ""}${repo ? `&repo=${encodeURIComponent(repo)}` : ""}${branch ? `&branch=${encodeURIComponent(branch)}` : ""}${currentFolder ? `&dir=${encodeURIComponent(currentFolder)}` : ""}`) } function preload(k) { if (!urls.length) return; const a = [(k + 1) % urls.length, (k - 1 + urls.length) % urls.length]; for (const x of a) { const im = new Image(); im.src = urls[x] } } function render() { if (!urls.length) { msg.textContent = "No images in this folder."; msg.classList.remove("hidden"); imagesPanel.querySelector(".overlay").classList.add("hidden"); slide.classList.add("hidden"); return } msg.classList.add("hidden"); imagesPanel.querySelector(".overlay").classList.remove("hidden"); slide.classList.remove("hidden"); slide.src = urls[idx]; slide.alt = names[idx]; caption.textContent = names[idx]; counter.textContent = `${idx + 1}/${urls.length}`; setHash(); preload(idx); Array.from(thumbs.children).forEach((b, i) => b.style.outline = i === idx ? "2px solid #fff" : "none") } function nextImg() { if (!urls.length) return; idx = (idx + 1) % urls.length; render() } function prevImg() { if (!urls.length) return; idx = (idx - 1 + urls.length) % urls.length; render() } function playStart() { if (timer || !urls.length) return; play.setAttribute("aria-pressed", "true"); timer = setInterval(nextImg, Math.max(500, parseInt(speed.value, 10) || 3000)) } function playStop() { if (!timer) return; play.setAttribute("aria-pressed", "false"); clearInterval(timer); timer = null } function playToggle() { if (timer) playStop(); else playStart() } slide.addEventListener("click", nextImg); prev.addEventListener("click", prevImg); next.addEventListener("click", nextImg); play.addEventListener("click", playToggle); speed.addEventListener("change", () => { if (timer) { playStop(); playStart() } }); window.addEventListener("keydown", e => { if (document.getElementById("images-tab").classList.contains("hidden")) return; if (e.target instanceof HTMLInputElement || e.target === folderSel) return; if (e.key === "ArrowRight") nextImg(); else if (e.key === "ArrowLeft") prevImg(); else if (e.key === " ") { e.preventDefault(); playToggle() } else if (e.key.toLowerCase() === "f") { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => { }) } }); slide.addEventListener("error", () => { failed.add(names[idx]); const removeAt = idx; urls.splice(removeAt, 1); names.splice(removeAt, 1); if (urls.length === 0) { render(); return } idx = removeAt % urls.length; render() }); function buildThumbs() { thumbs.innerHTML = ""; for (let x = 0; x < urls.length; x++) { const b = document.createElement("button"); b.type = "button"; b.className = "thumb"; const t = document.createElement("img"); t.loading = "lazy"; t.src = urls[x]; t.alt = names[x]; b.title = names[x]; b.addEventListener("click", () => { idx = x; render() }); b.appendChild(t); thumbs.appendChild(b) } } function setFolderSelector() { folderSel.innerHTML = ""; for (const f of folderNames) { const opt = document.createElement("option"); opt.value = f; opt.textContent = f; folderSel.appendChild(opt) } folderSel.value = currentFolder; folderSel.addEventListener("change", () => { loadFolder(folderSel.value) }) } function startAtFromQuery() { const qi = params.get("i"); if (qi !== null) { const t = parseInt(qi, 10); if (!Number.isNaN(t) && t >= 0 && t < urls.length) idx = t } const qn = params.get("name"); if (qn) { const j = names.indexOf(qn); if (j !== -1) idx = j } } function loadFolder(folder) { currentFolder = folder; const base = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/`; const list = (folders[folder] || []).slice().sort((a, b) => a.localeCompare(b)); urls = list.map(p => base + p); names = list.slice(); idx = 0; buildThumbs(); startAtFromQuery(); render() } function groupByFolder(list) { folders = {}; for (const p of list) { const parts = p.split("/"); const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "root"; if (!folders[dir]) folders[dir] = []; folders[dir].push(p) } folderNames = Object.keys(folders).sort(); currentFolder = startDir && folders[startDir] ? startDir : folderNames[0] || "" } async function fetchRepoImages() { if (!owner || !repo) { msg.textContent = "Set ?owner=ORG&repo=REPO[&branch=main] in the URL or host on GitHub Pages."; msg.classList.remove("hidden"); document.querySelector("#images-tab .overlay").classList.add("hidden"); document.querySelector("#images-tab .controls").classList.add("hidden"); return } const api = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`; const r = await fetch(api, { headers: { Accept: "application/vnd.github+json" } }); if (!r.ok) { msg.textContent = r.status === 404 ? "Repository or branch not found." : r.status === 403 ? "GitHub API rate limit reached. Try again later." : "Failed to load repository file list."; msg.classList.remove("hidden"); document.querySelector("#images-tab .overlay").classList.add("hidden"); document.querySelector("#images-tab .controls").classList.add("hidden"); return } const data = await r.json(); const tree = Array.isArray(data.tree) ? data.tree : []; const list = tree.filter(e => e && e.type === "blob" && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(e.path)).map(e => e.path); if (list.length === 0) { msg.textContent = "No images found in this repository."; msg.classList.remove("hidden"); document.querySelector("#images-tab .overlay").classList.add("hidden"); document.querySelector("#images-tab .controls").classList.add("hidden"); return } groupByFolder(list); setFolderSelector(); loadFolder(currentFolder) } fetchRepoImages().catch(() => { msg.textContent = "Unexpected error."; msg.classList.remove("hidden"); document.querySelector("#images-tab .overlay").classList.add("hidden"); document.querySelector("#images-tab .controls").classList.add("hidden") }) })();
+
+        // Sounds
+        (() => { "use strict"; const audio = document.getElementById("audio"); const caption = document.getElementById("audio-caption"); const counter = document.getElementById("audio-counter"); const prev = document.getElementById("audio-prev"); const next = document.getElementById("audio-next"); const play = document.getElementById("audio-play"); const listEl = document.getElementById("audio-list"); const msg = document.getElementById("audio-msg"); const folderSel = document.getElementById("audio-folders"); const params = new URLSearchParams(location.search); let owner = params.get("owner") || ""; let repo = params.get("repo") || ""; let branch = params.get("branch") || "main"; let startDir = params.get("dir") || ""; if (!owner || !repo) { const m = location.hostname.match(/^([^\.]+)\.github\.io$/); if (m) { owner = owner || m[1]; const parts = location.pathname.split("/").filter(Boolean); repo = repo || (parts[0] || "") } } let folders = {}; let folderNames = []; let currentFolder = ""; let urls = []; let names = []; let idx = 0; function render() { if (!urls.length) { msg.textContent = "No audio files in this folder."; msg.classList.remove("hidden"); document.querySelector("#audio-overlay").classList.add("hidden"); document.querySelector("#audio-controls").classList.add("hidden"); return } msg.classList.add("hidden"); document.querySelector("#audio-overlay").classList.remove("hidden"); document.querySelector("#audio-controls").classList.remove("hidden"); counter.textContent = `${idx + 1}/${urls.length}`; caption.textContent = names[idx] } function updateNowPlaying(playIt = false) { audio.src = urls[idx]; audio.dataset.name = names[idx]; render(); if (playIt) { audio.play().catch(() => {}); play.setAttribute("aria-pressed", "true") } } function buildList() { listEl.innerHTML = ""; for (let i = 0; i < urls.length; i++) { const b = document.createElement("button"); b.type = "button"; b.textContent = names[i]; b.title = names[i]; b.style.textAlign = "left"; b.style.border = "1px solid #222"; b.style.background = "#111"; b.style.color = "#fff"; b.style.padding = ".5rem .6rem"; b.style.borderRadius = ".35rem"; b.style.cursor = "pointer"; b.addEventListener("click", () => { idx = i; updateNowPlaying(true) }); listEl.appendChild(b) } } function setFolderSelector() { folderSel.innerHTML = ""; for (const f of folderNames) { const opt = document.createElement("option"); opt.value = f; opt.textContent = f; folderSel.appendChild(opt) } folderSel.value = currentFolder; folderSel.addEventListener("change", () => { loadFolder(folderSel.value) }) } function groupByFolder(list) { folders = {}; for (const p of list) { const parts = p.split("/"); const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "root"; if (!folders[dir]) folders[dir] = []; folders[dir].push(p) } folderNames = Object.keys(folders).sort(); currentFolder = startDir && folders[startDir] ? startDir : folderNames[0] || "" } function loadFolder(folder) { currentFolder = folder; const base = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/`; const list = (folders[folder] || []).slice().sort((a, b) => a.localeCompare(b)); urls = list.map(p => base + p); names = list.slice(); idx = 0; buildList(); updateNowPlaying(false) } async function fetchRepoAudio() { if (!owner || !repo) { msg.textContent = "Set ?owner=ORG&repo=REPO[&branch=main] in the URL or host on GitHub Pages."; msg.classList.remove("hidden"); document.querySelector("#audio-overlay").classList.add("hidden"); document.querySelector("#audio-controls").classList.add("hidden"); return } const api = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`; const r = await fetch(api, { headers: { Accept: "application/vnd.github+json" } }); if (!r.ok) { msg.textContent = r.status === 404 ? "Repository or branch not found." : r.status === 403 ? "GitHub API rate limit reached. Try again later." : "Failed to load repository file list."; msg.classList.remove("hidden"); document.querySelector("#audio-overlay").classList.add("hidden"); document.querySelector("#audio-controls").classList.add("hidden"); return } const data = await r.json(); const tree = Array.isArray(data.tree) ? data.tree : []; const list = tree.filter(e => e && e.type === "blob" && /\.(wav|mp3|ogg|flac|m4a|aac|opus)$/i.test(e.path)).map(e => e.path); if (list.length === 0) { msg.textContent = "No audio files found in this repository."; msg.classList.remove("hidden"); document.querySelector("#audio-overlay").classList.add("hidden"); document.querySelector("#audio-controls").classList.add("hidden"); return } groupByFolder(list); setFolderSelector(); loadFolder(currentFolder) } prev.addEventListener("click", () => { if (!urls.length) return; idx = (idx - 1 + urls.length) % urls.length; updateNowPlaying(true) }); next.addEventListener("click", () => { if (!urls.length) return; idx = (idx + 1) % urls.length; updateNowPlaying(true) }); play.addEventListener("click", () => { if (!urls.length) return; if (audio.paused) { if (!audio.src) updateNowPlaying(false); audio.play().catch(() => {}); play.setAttribute("aria-pressed", "true") } else { audio.pause(); play.setAttribute("aria-pressed", "false") } }); audio.addEventListener("ended", () => { idx = (idx + 1) % urls.length; updateNowPlaying(true) }); fetchRepoAudio().catch(() => { msg.textContent = "Unexpected error."; msg.classList.remove("hidden"); document.querySelector("#audio-overlay").classList.add("hidden"); document.querySelector("#audio-controls").classList.add("hidden") }) })();
     </script>
 </body>
 
