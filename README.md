@@ -1,4 +1,5 @@
 <p align="center">
+ <img src="./logo.svg" alt="Samael Assets Logo" width="220" /><br/>
  <strong>Samael Assets</strong><br/>
  A centralized media library and browser for project images, audio, interface resources, documentation assets, and shared static content.<br/>
  Designed for direct linking, GitHub Pages hosting, and reuse across Garry's Mod and web projects.
