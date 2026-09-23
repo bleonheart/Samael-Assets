@@ -1,8 +1,11 @@
 <p align="center">
- <img src="./logo.svg" alt="Samael Assets Logo" width="220" /><br/>
- <strong>Samael Assets</strong><br/>
- A centralized media library and browser for project images, audio, interface resources, documentation assets, and shared static content.<br/>
+ <strong>Samael Assets — Shared Project Media Library</strong><br/>
+ A centralized library and browser for images, audio, interface resources, documentation assets, and shared static content.<br/>
  Designed for direct linking, GitHub Pages hosting, and reuse across Garry's Mod and web projects.
+</p>
+
+<p align="center">
+ <img src="./logo.svg" alt="Samael Assets Logo" width="220" />
 </p>
 
 <p align="center">
@@ -13,8 +16,6 @@
   <img src="https://img.shields.io/github/stars/bleonheart/Samael-Assets?style=social" alt="GitHub Stars" />
  </a>
 </p>
-
-<h1 align="center">Samael Assets</h1>
 
 ---
 
